@@ -2,6 +2,8 @@ import socket
 import pickle
 import threading
 
+import logging
+
 TCP_IP = '127.0.0.1'
 T_PORT = 12345
 BUF_SIZE = 2048
@@ -25,61 +27,90 @@ class Buffer:
         self.lock.release()
         return filtered_buf
 
+class Server:
+    def __init__(self, address=('127.0.0.1', 12345), buf_size = 2048):
+        self.msg_buffer = Buffer()
+        self.logger = logging.Log("Logs/server_log", True)
+        self.buf_size = buf_size
+        self.address = address
+        self.isAlive = True
+        self.lock = threading.Lock()
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.bind(address)
+
+    def  has_msg_for(self, client):
+        # lambda returns bool-> if msg.receiver == client
+        return lambda smsg : smsg['receiver'] == client
+
+    def handle_client(self, client):
+        self.logger.log("Received request from client")
+        # msg = (sender, receiver, msg_str)
+        try:
+            message = pickle.loads( client.recv(self.buf_size) )
+        except EOFError:
+            self.logger.log("EOFError, probably problem in data format")
+            # TODO: need to change this so client knows that msg didn't get through
+            empty = pickle.dumps([ False ])
+            client.send(empty)
+            client.close()
+            return 
+            
+        self.logger.log(f"client >> {message}")
+        # msg to itself is not stored on server
+        if(message['sender'] != message['receiver']): # msg.receiver != msg.sender
+            self.msg_buffer.append(message)
+        # cId = data[0]
+        # if any_msg.receiver == message.sender, send response (msg.sender, msg.msg_str)
+        response = []
+        msg_to_client = msg_buffer.filter(self.has_msg_for(message['sender']))
+        for msg in msg_to_client:
+            response.append(msg)
+
+        if(len(response) > 0):
+            # mark response as carrying new message(s)
+            response.insert(0, True)
+            # remove responses sent from msg-buffer
+            for msg in msg_to_client:
+                self.msg_buffer.remove(msg)
+        else:
+            response.append(False)
+
+        self.logger.log(f"{message['sender']} << {response}")
+        response = pickle.dumps(response)
+        client.send(response)
+        client.close()
+        
+        self.logger.log(f"Closed client: {message['sender']}")
+
+    def start(self):
+
+            self.logger.log(f"Server Started on : {self.address}")
+            self.socket.listen(5)
+            
+            while self.alive():
+                client, addr = self.socket.accept()
+
+                self.logger.log(f"Connection Address is: {addr}")
+                
+                self.handle_client(client)     
+
+    def alive(self):
+        return self.isAlive
+    
+    def setAlive(self, is_alive):
+        self.lock.acquire()
+        self.isAlive = is_alive
+        self.lock.release()
+
+    def __del__(self):
+        self.socket.close()
+
 
 msg_buffer = Buffer()
-
-
-def  has_msg_for(client):
-    # lambda returns bool-> if msg.receiver == client
-    return lambda smsg : smsg[1] == client
-
-def handle_client(client):
-    global msg_buffer
-    print("Received request from client:", client)
-
-    # msg = (sender, receiver, msg_str)
-    data = pickle.loads( client.recv(BUF_SIZE) )
-    print(f"client >> {data}")
-    # msg to itself not allowed
-    if(data[0] != data[1]): # msg.receiver != msg.sender
-        msg_buffer.append(data)
-    cId = data[0]
-    response = []
-    msg_to_client =msg_buffer.filter(has_msg_for(cId))
-    for msg in msg_to_client:
-        # if any msg.receiver == cId, send response (msg.sender, msg.msg_str)
-        response.append((msg[0], msg[2]))
-
-    if(len(response) > 0):
-        # mark response as carrying new msges
-        response.insert(0, True)
-        # remove responses sent from msg-buffer
-        for msg in msg_to_client:
-            msg_buffer.remove(msg)
-    else:
-        response.append(False)
-
-    print(f"{cId} << {response}")
-    response = pickle.dumps(response)
-    client.send(response)
-    client.close()
-    
-    print("Closed client:", cId)
+logger = logging.Log("Logs/server_log")
 
 
 
 # Main Code
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
-
-    server.bind((TCP_IP, T_PORT))
-
-    print("Server Started on port: ", T_PORT)
-
-    server.listen(5)
-    
-    while True:
-        client, addr = server.accept()
-
-        print("Connection Address is: ", addr)
-        
-        handle_client(client)
+server = Server()
+server.start()

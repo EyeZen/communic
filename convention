@@ -1,2 +1,4 @@
 client -> (sender, receiver, message_string) -> server
-server -> [hasMsg, (sender, message_string), ... ]
+server -> [hasMsg, (sender, message_string), ... ] -> client
+dummy message : fetches response : not stored on server 
+dummy-message -> [sender, sender]
