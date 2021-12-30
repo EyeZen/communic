@@ -1,0 +1,2 @@
+client -> (sender, receiver, message_string) -> server
+server -> [hasMsg, (sender, message_string), ... ]
